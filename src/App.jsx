@@ -442,12 +442,15 @@ function MarketSplit({ digits }) {
 /* ══════════════════════════════════════════════════════════════
    HOME PAGE
 ══════════════════════════════════════════════════════════════ */
-function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels, activeTrades, stats, scores, bestMarket, history, resetHistory, scannerMarket, setScannerMarket }) {
+function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels, activeTrades, stats, scores, bestMarket, history, resetHistory, scannerMarket, setScannerMarket, isMobile }) {
   const netPnl = stats.totalProfit;
   const pnlColor = netPnl >= 0 ? T.green : T.red;
   const [sessionTimer, setSessionTimer] = useState(0);
   const [timerLimit, setTimerLimit] = useState(0);
   const [showRisk, setShowRisk] = useState(false);
+  const [showDigitAnalysis, setShowDigitAnalysis] = useState(!isMobile);
+  const [showBotControl, setShowBotControl] = useState(!isMobile);
+  const [showTickFlow, setShowTickFlow] = useState(!isMobile);
   const [elapsed, setElapsed] = useState('—');
   const timerRef = useRef(null);
 
@@ -489,120 +492,181 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-      <div style={{ display:'flex', gap:12 }}>
-        <Stat label="Balance" value={`$${conn.balance.toFixed(2)}`} sub={conn.currency} color={T.text} size="lg" />
-        <Stat label="Session P&L" value={netPnl>=0?`+$${netPnl.toFixed(2)}`:`-$${Math.abs(netPnl).toFixed(2)}`} sub={`${stats.total} trades`} color={pnlColor} />
-        <Stat label="Win Rate" value={`${stats.total>0?Math.round(stats.wins/stats.total*100):0}%`} sub={`${stats.wins}W / ${stats.losses}L`} color={stats.wins/Math.max(1,stats.total)>0.5?T.green:T.red} />
-        <Stat label="Active Trades" value={activeTrades.length} sub={botRunning?'Bot running':'Bot stopped'} color={botRunning?T.green:T.muted} />
-        <Stat label="Best Market" value={bestMarket?MSHORT[bestMarket.market]:'—'} sub={`Score ${bestMarket?.score||0}`} color={T.accent} />
+      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap:12 }}>
+        {isMobile && (
+          <Stat label="Balance" value={`$${conn.balance.toFixed(2)}`} sub={conn.currency} color={T.text} size="lg" />
+        )}
+        <div style={{ display:'flex', gap:12, overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 8 : 0, flex: 1, scrollSnapType: isMobile ? 'x mandatory' : 'none' }}>
+          {!isMobile && <Stat label="Balance" value={`$${conn.balance.toFixed(2)}`} sub={conn.currency} color={T.text} size="lg" />}
+          <Stat label="Session P&L" value={netPnl>=0?`+$${netPnl.toFixed(2)}`:`-$${Math.abs(netPnl).toFixed(2)}`} sub={`${stats.total} trades`} color={pnlColor} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
+          <Stat label="Win Rate" value={`${stats.total>0?Math.round(stats.wins/stats.total*100):0}%`} sub={`${stats.wins}W / ${stats.losses}L`} color={stats.wins/Math.max(1,stats.total)>0.5?T.green:T.red} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
+          <Stat label="Active Trades" value={activeTrades.length} sub={botRunning?'Bot running':'Bot stopped'} color={botRunning?T.green:T.muted} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
+          <Stat label="Best Market" value={bestMarket?MSHORT[bestMarket.market]:'—'} sub={`Score ${bestMarket?.score||0}`} color={T.accent} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
+        </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 600px', gap:16, alignItems:'start' }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:16, minWidth:0 }}>
-          <DigitAnalysis digits={scores[bestMarket?.market]?.digits} />
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-            <div style={{ ...css.card, display:'flex', flexDirection:'column', gap:14 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em' }}>Bot Control</div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <select value={scannerMarket} onChange={e=>setScannerMarket(e.target.value)}
-                    style={{ background:T.surface3, color:T.accent, border:`1px solid ${T.border}`, borderRadius:4, padding:'2px 6px', fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", cursor:'pointer', outline:'none' }}>
-                    {MARKETS.map(sym => <option key={sym} value={sym}>{MSHORT[sym]}</option>)}
-                  </select>
-                  <span style={{ fontSize:10, color:T.muted, fontWeight:800 }}>AUTO</span>
-                  <button onClick={()=>setConfig(c=>({...c,autoSwitch:!c.autoSwitch}))}
-                    style={{ width:36, height:18, borderRadius:9, background:config.autoSwitch?T.green:T.dim, border:'none', position:'relative', cursor:'pointer' }}>
-                    <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', position:'absolute', top:2, left:config.autoSwitch?20:2, transition:'0.2s' }} />
-                  </button>
-                </div>
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-                <button onClick={()=>setBotRunning(r=>!r)}
-                  style={{ width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
-                    background: botRunning
-                      ? `linear-gradient(135deg,#00e676,#00c853)`
-                      : `linear-gradient(135deg,${T.accent},#c62828)`,
-                    color:'#fff',
-                    boxShadow: botRunning
-                      ? `0 0 40px #00e67680, 0 0 80px #00e67630, inset 0 1px 0 rgba(255,255,255,0.2)`
-                      : `0 0 40px ${T.accent}80, 0 0 80px ${T.accent}30, inset 0 1px 0 rgba(255,255,255,0.2)`,
-                    transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
-                  {botRunning ? '⏹' : '▶'}
-                </button>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:700, color: botRunning?T.green:T.muted, fontFamily:"'Syne',sans-serif" }}>
-                    {botRunning ? 'BOT RUNNING' : 'BOT STOPPED'}
-                  </div>
-                  <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
-                    {botRunning ? `Trading on ${bestMarket?MSHORT[bestMarket.market]:'scanning...'}` : 'Press to start auto-trading'}
-                  </div>
-                </div>
-              </div>
-              <div>
-                <div style={css.label}>Active Strategies</div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  {Object.entries(STRATEGIES).filter(([k,s]) => !s.hidden).map(([key,s]) => (
-                    <button key={key} onClick={()=>setConfig(c=>({...c,enabled:{...c.enabled,[key]:!c.enabled[key]}}))}
-                      style={{ ...css.btn, padding:'5px 12px', fontSize:12,
-                        background: config.enabled[key] ? (s.color==T.accent?T.accentDim:s.color==T.purple?T.purpleDim:T.greenDim) : 'transparent',
-                        color: config.enabled[key] ? s.color : T.muted,
-                        border:`1px solid ${config.enabled[key]?s.color+'44':T.border}` }}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button onClick={()=>setShowRisk(s=>!s)}
-                style={{ ...css.btn, background:T.surface3, border:`1px solid ${T.border}`, width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
-                <span style={{ fontWeight:700, fontSize:11 }}>RISK PARAMETERS</span>
-                <span style={{ fontSize:10 }}>{showRisk?'▲':'▼'}</span>
-              </button>
-              {showRisk && (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, padding:10, background:T.dim, borderRadius:8 }}>
-                  <div>
-                    <label style={css.label}>Stake</label>
-                    <input style={css.input} type="number" step="0.01" min="0.35" value={config.baseStake}
-                      onChange={e=>setConfig(c=>({...c,baseStake:parseFloat(e.target.value)||0.35}))} />
-                  </div>
-                  <div>
-                    <label style={css.label}>Mart ×</label>
-                    <input style={css.input} type="number" step="0.5" min="1.5" max="5" value={config.multiplier}
-                      onChange={e=>setConfig(c=>({...c,multiplier:parseFloat(e.target.value)||2}))} />
-                  </div>
-                  <div>
-                    <label style={css.label}>Steps</label>
-                    <input style={css.input} type="number" step="1" min="2" max="8" value={config.maxSteps}
-                      onChange={e=>setConfig(c=>({...c,maxSteps:parseInt(e.target.value)||5}))} />
-                  </div>
-                  <div>
-                    <label style={css.label}>StopL</label>
-                    <input style={css.input} type="number" step="1" min="0" value={config.stopLoss}
-                      onChange={e=>setConfig(c=>({...c,stopLoss:parseFloat(e.target.value)||0}))} />
-                  </div>
-                  <div>
-                    <label style={css.label}>TakeP</label>
-                    <input style={css.input} type="number" step="1" min="0" value={config.takeProfit}
-                      onChange={e=>setConfig(c=>({...c,takeProfit:parseFloat(e.target.value)||0}))} />
-                  </div>
-                  <div>
-                    <label style={css.label}>Mode</label>
-                    <select style={{ ...css.input, padding:'0 5px' }} value={config.stakingMode}
-                      onChange={e=>setConfig(c=>({...c,stakingMode:e.target.value}))}>
-                      <option value="fibonacci">Fibonacci</option>
-                      <option value="martingale">Martingale</option>
-                      <option value="dalembert">D'Alembert</option>
-                      <option value="oscars">Oscar's Grind</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={css.label}>Timer</label>
-                    <input style={css.input} type="number" step="5" min="0" value={timerLimit}
-                      onChange={e=>setTimerLimit(parseInt(e.target.value)||0)} />
-                  </div>
-                </div>
-              )}
+      <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap:16, alignItems:'start' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:isMobile?0:16, minWidth:0, flex:1, width: isMobile ? '100%' : 'auto', 
+          ...(isMobile ? { border:`1px solid ${T.border}`, borderRadius:12, overflow:'hidden', background:T.surface2 } : {}) }}>
+          
+          {isMobile && (
+            <button onClick={()=>setShowDigitAnalysis(s=>!s)}
+              style={{ ...css.btn, borderRadius:0, background:T.surface3, border:'none', borderBottom:showDigitAnalysis?`1px solid ${T.border}`:'none', width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+              <span style={{ fontWeight:700, fontSize:11 }}>DIGIT ANALYSIS</span>
+              <span style={{ fontSize:10 }}>{showDigitAnalysis?'▲':'▼'}</span>
+            </button>
+          )}
+          {(!isMobile || showDigitAnalysis) && (
+            <div style={{ ...(isMobile ? { padding:'16px 18px', borderBottom:`1px solid ${T.border}` } : {}) }}>
+              <DigitAnalysis digits={scores[bestMarket?.market]?.digits} />
             </div>
-            <div style={css.card}>
+          )}
+
+          {isMobile && (
+            <button onClick={()=>setShowBotControl(s=>!s)}
+              style={{ ...css.btn, borderRadius:0, background:T.surface3, border:'none', borderBottom:showBotControl?`1px solid ${T.border}`:'none', width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+              <span style={{ fontWeight:700, fontSize:11 }}>BOT CONTROL</span>
+              <span style={{ fontSize:10 }}>{showBotControl?'▲':'▼'}</span>
+            </button>
+          )}
+          {(!isMobile || showBotControl) && (
+            <div style={{ ...(isMobile ? { padding:'16px 18px', borderBottom:`1px solid ${T.border}` } : { ...css.card, display:'flex', flexDirection:'column', gap:14, flex:1 }) }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em' }}>Bot Control</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <select value={scannerMarket} onChange={e=>setScannerMarket(e.target.value)}
+                      style={{ background:T.surface3, color:T.accent, border:`1px solid ${T.border}`, borderRadius:4, padding:'2px 6px', fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", cursor:'pointer', outline:'none' }}>
+                      {MARKETS.map(sym => <option key={sym} value={sym}>{MSHORT[sym]}</option>)}
+                    </select>
+                    <span style={{ fontSize:10, color:T.muted, fontWeight:800 }}>AUTO</span>
+                    <button onClick={()=>setConfig(c=>({...c,autoSwitch:!c.autoSwitch}))}
+                      style={{ width:36, height:18, borderRadius:9, background:config.autoSwitch?T.green:T.dim, border:'none', position:'relative', cursor:'pointer' }}>
+                      <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', position:'absolute', top:2, left:config.autoSwitch?20:2, transition:'0.2s' }} />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+                  {!isMobile && (
+                    <button onClick={()=>setBotRunning(r=>!r)}
+                      style={{ width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
+                        background: botRunning
+                          ? `linear-gradient(135deg,#00e676,#00c853)`
+                          : `linear-gradient(135deg,${T.accent},#c62828)`,
+                        color:'#fff',
+                        boxShadow: botRunning
+                          ? `0 0 40px #00e67680, 0 0 80px #00e67630, inset 0 1px 0 rgba(255,255,255,0.2)`
+                          : `0 0 40px ${T.accent}80, 0 0 80px ${T.accent}30, inset 0 1px 0 rgba(255,255,255,0.2)`,
+                        transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
+                      {botRunning ? '⏹' : '▶'}
+                    </button>
+                  )}
+                  {isMobile && (
+                    <button onClick={()=>setBotRunning(r=>!r)}
+                      style={{ position:'fixed', top:70, left:'50%', transform:'translateX(-50%)', zIndex:1000,
+                        width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
+                        background: botRunning
+                          ? `linear-gradient(135deg,#00e676,#00c853)`
+                          : `linear-gradient(135deg,${T.accent},#c62828)`,
+                        color:'#fff',
+                        boxShadow: botRunning
+                          ? `0 10px 40px #00e67680, inset 0 1px 0 rgba(255,255,255,0.2)`
+                          : `0 10px 40px ${T.accent}80, inset 0 1px 0 rgba(255,255,255,0.2)`,
+                        transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
+                      {botRunning ? '⏹' : '▶'}
+                    </button>
+                  )}
+                  <div>
+                    <div style={{ fontSize:16, fontWeight:700, color: botRunning?T.green:T.muted, fontFamily:"'Syne',sans-serif" }}>
+                      {botRunning ? 'BOT RUNNING' : 'BOT STOPPED'}
+                    </div>
+                    <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
+                      {botRunning ? `Trading on ${bestMarket?MSHORT[bestMarket.market]:'scanning...'}` : 'Press to start auto-trading'}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style={css.label}>Active Strategies</div>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    {Object.entries(STRATEGIES).filter(([k,s]) => !s.hidden).map(([key,s]) => (
+                      <button key={key} onClick={()=>setConfig(c=>({...c,enabled:{...c.enabled,[key]:!c.enabled[key]}}))}
+                        style={{ ...css.btn, padding:'5px 12px', fontSize:12,
+                          background: config.enabled[key] ? (s.color==T.accent?T.accentDim:s.color==T.purple?T.purpleDim:T.greenDim) : 'transparent',
+                          color: config.enabled[key] ? s.color : T.muted,
+                          border:`1px solid ${config.enabled[key]?s.color+'44':T.border}` }}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={()=>setShowRisk(s=>!s)}
+                  style={{ ...css.btn, background:T.surface3, border:`1px solid ${T.border}`, width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+                  <span style={{ fontWeight:700, fontSize:11 }}>RISK PARAMETERS</span>
+                  <span style={{ fontSize:10 }}>{showRisk?'▲':'▼'}</span>
+                </button>
+                {showRisk && (
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, padding:10, background:T.dim, borderRadius:8 }}>
+                    <div>
+                      <label style={css.label}>Stake</label>
+                      <input style={css.input} type="number" step="0.01" min="0.35" value={config.baseStake}
+                        onChange={e=>setConfig(c=>({...c,baseStake:parseFloat(e.target.value)||0.35}))} />
+                    </div>
+                    <div>
+                      <label style={css.label}>Mart ×</label>
+                      <input style={css.input} type="number" step="0.5" min="1.5" max="5" value={config.multiplier}
+                        onChange={e=>setConfig(c=>({...c,multiplier:parseFloat(e.target.value)||2}))} />
+                    </div>
+                    <div>
+                      <label style={css.label}>Steps</label>
+                      <input style={css.input} type="number" step="1" min="2" max="8" value={config.maxSteps}
+                        onChange={e=>setConfig(c=>({...c,maxSteps:parseInt(e.target.value)||5}))} />
+                    </div>
+                    <div>
+                      <label style={css.label}>StopL</label>
+                      <input style={css.input} type="number" step="1" min="0" value={config.stopLoss}
+                        onChange={e=>setConfig(c=>({...c,stopLoss:parseFloat(e.target.value)||0}))} />
+                    </div>
+                    <div>
+                      <label style={css.label}>TakeP</label>
+                      <input style={css.input} type="number" step="1" min="0" value={config.takeProfit}
+                        onChange={e=>setConfig(c=>({...c,takeProfit:parseFloat(e.target.value)||0}))} />
+                    </div>
+                    <div>
+                      <label style={css.label}>Mode</label>
+                      <select style={{ ...css.input, padding:'0 5px' }} value={config.stakingMode}
+                        onChange={e=>setConfig(c=>({...c,stakingMode:e.target.value}))}>
+                        <option value="fibonacci">Fibonacci</option>
+                        <option value="martingale">Martingale</option>
+                        <option value="dalembert">D'Alembert</option>
+                        <option value="oscars">Oscar's Grind</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={css.label}>Timer</label>
+                      <input style={css.input} type="number" step="5" min="0" value={timerLimit}
+                        onChange={e=>setTimerLimit(parseInt(e.target.value)||0)} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {isMobile && (
+            <button onClick={()=>setShowTickFlow(s=>!s)}
+              style={{ ...css.btn, borderRadius:0, background:T.surface3, border:'none', borderBottom:showTickFlow?`1px solid ${T.border}`:'none', width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+              <span style={{ fontWeight:700, fontSize:11 }}>TICK FLOW</span>
+              <span style={{ fontSize:10 }}>{showTickFlow?'▲':'▼'}</span>
+            </button>
+          )}
+          {(!isMobile || showTickFlow) && (
+            <div style={{ ...(isMobile ? { padding:'16px 18px' } : {}) }}>
+              <TickFlow digits={scores[bestMarket?.market]?.digits} />
+            </div>
+          )}
+
+          {!isMobile && (
+            <div style={{ ...css.card, flex:1, marginTop:16 }}>
               <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Market Radar</div>
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {MARKETS.map(sym => {
@@ -622,11 +686,10 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
                 })}
               </div>
             </div>
-          </div>
-          <TickFlow digits={scores[bestMarket?.market]?.digits} />
+          )}
         </div>
-        <div style={{ position:'sticky', top:0, display:'flex', flexDirection:'column', gap:16 }}>
-          <div style={{ ...css.card, padding:'16px 20px', maxHeight:'calc(100vh - 120px)', overflowY:'auto' }}>
+        <div style={{ position: isMobile ? 'static' : 'sticky', top:0, display:'flex', flexDirection:'column', gap:16, width: isMobile ? '100%' : 600 }}>
+          <div style={{ ...css.card, padding:'16px 20px', maxHeight: isMobile ? 'none' : 'calc(100vh - 120px)', overflowY: isMobile ? 'visible' : 'auto', paddingBottom: isMobile ? 100 : 16 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
               <div style={{ fontSize:14, fontWeight:700, color:T.muted, textTransform:'uppercase' }}>TRADES ({history?.length||0})</div>
               <button onClick={resetHistory} style={{ background:T.red, color:'#fff', border:'none', borderRadius:4, padding:'4px 8px', fontSize:10, fontWeight:800, cursor:'pointer' }}>RESET</button>
@@ -1313,9 +1376,54 @@ function Sidebar({ page, setPage, conn }) {
       ))}
 
       <div style={{ flex:1 }}/>
-      {/* Connection dot */}
       <div title={conn.status} style={{ width:8,height:8,borderRadius:'50%',background:statusColor,
         boxShadow:`0 0 8px ${statusColor}`, marginBottom:8 }} />
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LOGIN SCREEN
+══════════════════════════════════════════════════════════════ */
+function LoginScreen({ onLogin }) {
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [error, setError] = useState('');
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (user === 'Joycakes' && pass === '1234aBcd') {
+      onLogin();
+    } else {
+      setError('Invalid username or password');
+    }
+  };
+
+  return (
+    <div style={{ display:'flex', height:'100vh', width:'100vw', alignItems:'center', justifyContent:'center', background:T.bg, fontFamily:"'Outfit',sans-serif" }}>
+      <form onSubmit={handleLogin} style={{ ...css.card, width:'100%', maxWidth:360, display:'flex', flexDirection:'column', gap:16, padding:32, margin:20 }}>
+        <div style={{ textAlign:'center', marginBottom:16 }}>
+          <div style={{ width:64,height:64,borderRadius:16,background:`linear-gradient(135deg,${T.accent},#0055AA)`,
+            display:'flex',alignItems:'center',justifyContent:'center',fontSize:32,margin:'0 auto 16px',
+            boxShadow:`0 0 30px ${T.accent}40`,fontWeight:900,color:'#000',fontFamily:"'Syne',sans-serif" }}>D</div>
+          <h2 style={{ fontSize:24, fontWeight:700, color:T.text, fontFamily:"'Syne',sans-serif" }}>Welcome Back</h2>
+          <p style={{ fontSize:13, color:T.muted, marginTop:4 }}>Sign in to access your trading dashboard</p>
+        </div>
+        
+        {error && <div style={{ padding:10, borderRadius:8, background:T.redDim, color:T.red, fontSize:13, textAlign:'center', fontWeight:600 }}>{error}</div>}
+
+        <div>
+          <label style={css.label}>Username</label>
+          <input style={css.input} type="text" value={user} onChange={e=>setUser(e.target.value)} required />
+        </div>
+        <div>
+          <label style={css.label}>Password</label>
+          <input style={css.input} type="password" value={pass} onChange={e=>setPass(e.target.value)} required />
+        </div>
+        <button type="submit" style={{ ...css.btn, background:T.accent, color:'#000', fontWeight:800, padding:'14px', fontSize:15, marginTop:8, boxShadow:`0 4px 20px ${T.accent}40` }}>
+          SECURE LOGIN
+        </button>
+      </form>
     </div>
   );
 }
@@ -1324,6 +1432,15 @@ function Sidebar({ page, setPage, conn }) {
    MAIN APP
 ══════════════════════════════════════════════════════════════ */
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('eoou_auth') === 'true');
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
   const [page, setPage] = useState('home');
   const [accountType, setAccountType] = useState('real');
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
@@ -1983,8 +2100,12 @@ export default function App() {
 
   const bestMarket = getBestMarket(scores);
   const resetHistory = () => { histRef.current=[]; setHistory([]); localStorage.removeItem('eoou_history'); const s={total:0,wins:0,losses:0,totalProfit:0,pnlChart:[],sessionStart:Date.now()}; statsRef.current=s; setStats(s); localStorage.removeItem('eoou_stats'); };
-  const pageProps = { conn, botRunning, setBotRunning, config, setConfig, channels, activeTrades, stats, scores, bestMarket, history, resetHistory, scannerMarket, setScannerMarket };
+  const pageProps = { conn, botRunning, setBotRunning, config, setConfig, channels, activeTrades, stats, scores, bestMarket, history, resetHistory, scannerMarket, setScannerMarket, isMobile };
   const PAGE_TITLES = { home:'Dashboard', scanner:'Market Scanner', records:'Trade Records', copy:'Copy Trade', followers:'Followers', risk:'Risk Management' };
+
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={() => { localStorage.setItem('eoou_auth', 'true'); setIsAuthenticated(true); }} />;
+  }
 
   return (
     <>
@@ -1998,14 +2119,32 @@ export default function App() {
       `}</style>
 
       <div style={{ display:'flex', height:'100vh', overflow:'hidden', fontFamily:"'Outfit',sans-serif" }}>
-        <Sidebar page={page} setPage={setPage} conn={conn} />
+        
+        {/* Desktop Sidebar */}
+        {!isMobile && <Sidebar page={page} setPage={setPage} conn={conn} />}
+
+        {/* Mobile Sidebar Drawer */}
+        {isMobile && showMobileMenu && (
+          <div style={{ position:'fixed', top:0, left:0, width:'100vw', height:'100vh', zIndex:1000, background:'rgba(0,0,0,0.5)' }} onClick={()=>setShowMobileMenu(false)}>
+            <div style={{ width:72, height:'100%', background:T.sidebar }} onClick={e=>e.stopPropagation()}>
+              <Sidebar page={page} setPage={p=>{setPage(p); setShowMobileMenu(false);}} conn={conn} />
+            </div>
+          </div>
+        )}
 
         {/* Main content */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', position:'relative' }}>
           {/* Top bar */}
           <div style={{ height:52, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center',
             padding:'0 20px', gap:12, flexShrink:0, background:T.surface }}>
-            <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:"'Syne',sans-serif", flex:1 }}>
+            
+            {isMobile && (
+              <button onClick={()=>setShowMobileMenu(true)} style={{ background:'transparent', border:'none', color:T.text, fontSize:24, cursor:'pointer', marginRight:8 }}>
+                ☰
+              </button>
+            )}
+            
+            <div style={{ fontSize:isMobile?14:16, fontWeight:700, color:T.text, fontFamily:"'Syne',sans-serif", flex:1 }}>
               {PAGE_TITLES[page]}
             </div>
 
