@@ -293,11 +293,11 @@ const css = {
   label:{ fontSize:11, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:5, display:'block' },
 };
 
-function Stat({ label, value, sub, color, size='md' }) {
+function Stat({ label, value, sub, color, size='md', style }) {
   return (
-    <div style={{ ...css.card, flex:1, minWidth:110 }}>
+    <div style={{ ...css.card, flex:1, minWidth:110, ...style }}>
       <div style={{ fontSize:11, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>{label}</div>
-      <div style={{ fontSize: size==='lg'?28:22, fontWeight:700, color: color||T.text, fontFamily:"'Syne', sans-serif", lineHeight:1 }}>{value}</div>
+      <div style={{ fontSize: size==='lg'?28:size==='sm'?18:22, fontWeight:700, color: color||T.text, fontFamily:"'Syne', sans-serif", lineHeight:1 }}>{value}</div>
       {sub && <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>{sub}</div>}
     </div>
   );
@@ -358,7 +358,7 @@ function TickFlow({ digits }) {
   );
 }
 
-function DigitAnalysis({ digits }) {
+function DigitAnalysis({ digits, isMobile }) {
   if (!digits || digits.length === 0) return null;
   const recent = digits.slice(-50);
   const older = digits.slice(-100, -50);
@@ -371,34 +371,38 @@ function DigitAnalysis({ digits }) {
   const maxCount = Math.max(1, ...freqs.map(f=>f.count));
   
   return (
-    <div style={{ ...css.card, display:'flex', flexDirection:'column', gap:16 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:4 }}>
-        <div style={{ fontSize:12, color:T.muted, fontWeight:600, textTransform:'uppercase' }}>DIGIT ANALYSIS</div>
-        <div style={{ fontSize:10, color:T.muted }}>
-          <span style={{color:T.green}}>Green &ge;12%</span> | <span style={{color:T.red}}>Red &lt;7.7%</span> | <span style={{color:T.green}}>↑</span> <span style={{color:T.red}}>↓</span> Momentum
-        </div>
-      </div>
-      <div style={{ display:'flex', justifyContent:'space-between' }}>
-        {freqs.map(({d, count, momentum}) => {
-          const pct = (count/digits.length*100);
-          const color = pct >= 12 ? T.green : pct < 7.7 ? T.red : T.text;
-          const isMin = count === Math.min(...freqs.map(f=>f.count));
-          return (
-            <div key={d} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, width:'10%', position:'relative' }}>
-              <div style={{ position:'absolute', top:-8, right:8, fontSize:10, color: momentum>0?T.green:momentum<0?T.red:'transparent' }}>
-                {momentum>0?'↑':momentum<0?'↓':''}
-              </div>
-              <div style={{ width:32, height:32, borderRadius:'50%', border:`2px solid ${isMin ? '#2196f3' : T.borderHi}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:T.text }}>
-                {d}
-              </div>
-              <div style={{ fontSize:11, fontWeight:700, color:color }}>{pct.toFixed(1)}%</div>
-              <div style={{ fontSize:9, color:T.muted }}>{count}x</div>
-              <div style={{ height:3, width:'100%', background:color, opacity:0.3, marginTop:4 }} />
-              <div style={{ height:3, width:`${(count/maxCount)*100}%`, background:color, marginTop:-7 }} />
+    <div style={{ ...(isMobile ? {} : css.card), display:'flex', flexDirection:'column', gap:isMobile?0:16 }}>
+      {!isMobile && (
+        <>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:4 }}>
+            <div style={{ fontSize:12, color:T.muted, fontWeight:600, textTransform:'uppercase' }}>DIGIT ANALYSIS</div>
+            <div style={{ fontSize:10, color:T.muted }}>
+              <span style={{color:T.green}}>Green &ge;12%</span> | <span style={{color:T.red}}>Red &lt;7.7%</span> | <span style={{color:T.green}}>↑</span> <span style={{color:T.red}}>↓</span> Momentum
             </div>
-          );
-        })}
-      </div>
+          </div>
+          <div style={{ display:'flex', justifyContent:'space-between' }}>
+            {freqs.map(({d, count, momentum}) => {
+              const pct = (count/digits.length*100);
+              const color = pct >= 12 ? T.green : pct < 7.7 ? T.red : T.text;
+              const isMin = count === Math.min(...freqs.map(f=>f.count));
+              return (
+                <div key={d} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, width:'10%', position:'relative' }}>
+                  <div style={{ position:'absolute', top:-8, right:8, fontSize:10, color: momentum>0?T.green:momentum<0?T.red:'transparent' }}>
+                    {momentum>0?'↑':momentum<0?'↓':''}
+                  </div>
+                  <div style={{ width:32, height:32, borderRadius:'50%', border:`2px solid ${isMin ? '#2196f3' : T.borderHi}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:T.text }}>
+                    {d}
+                  </div>
+                  <div style={{ fontSize:11, fontWeight:700, color:color }}>{pct.toFixed(1)}%</div>
+                  <div style={{ fontSize:9, color:T.muted }}>{count}x</div>
+                  <div style={{ height:3, width:'100%', background:color, opacity:0.3, marginTop:4 }} />
+                  <div style={{ height:3, width:`${(count/maxCount)*100}%`, background:color, marginTop:-7 }} />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
       <MarketSplit digits={digits} />
     </div>
   );
@@ -496,12 +500,12 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
         {isMobile && (
           <Stat label="Balance" value={`$${conn.balance.toFixed(2)}`} sub={conn.currency} color={T.text} size="lg" />
         )}
-        <div style={{ display:'flex', gap:12, overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 8 : 0, flex: 1, scrollSnapType: isMobile ? 'x mandatory' : 'none' }}>
+        <div style={{ display:'flex', gap:12, flexWrap: isMobile ? 'wrap' : 'nowrap', flex: 1 }}>
           {!isMobile && <Stat label="Balance" value={`$${conn.balance.toFixed(2)}`} sub={conn.currency} color={T.text} size="lg" />}
-          <Stat label="Session P&L" value={netPnl>=0?`+$${netPnl.toFixed(2)}`:`-$${Math.abs(netPnl).toFixed(2)}`} sub={`${stats.total} trades`} color={pnlColor} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
-          <Stat label="Win Rate" value={`${stats.total>0?Math.round(stats.wins/stats.total*100):0}%`} sub={`${stats.wins}W / ${stats.losses}L`} color={stats.wins/Math.max(1,stats.total)>0.5?T.green:T.red} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
-          <Stat label="Active Trades" value={activeTrades.length} sub={botRunning?'Bot running':'Bot stopped'} color={botRunning?T.green:T.muted} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
-          <Stat label="Best Market" value={bestMarket?MSHORT[bestMarket.market]:'—'} sub={`Score ${bestMarket?.score||0}`} color={T.accent} style={isMobile ? {minWidth:'140px', flexShrink:0, scrollSnapAlign:'start'} : {}} />
+          <Stat label="Session P&L" value={netPnl>=0?`+$${netPnl.toFixed(2)}`:`-$${Math.abs(netPnl).toFixed(2)}`} sub={`${stats.total} trades`} color={pnlColor} size={isMobile ? 'sm' : 'md'} style={isMobile ? {minWidth:'calc(50% - 6px)', flexShrink:0, padding:'10px 12px'} : {}} />
+          <Stat label="Win Rate" value={`${stats.total>0?Math.round(stats.wins/stats.total*100):0}%`} sub={`${stats.wins}W / ${stats.losses}L`} color={stats.wins/Math.max(1,stats.total)>0.5?T.green:T.red} size={isMobile ? 'sm' : 'md'} style={isMobile ? {minWidth:'calc(50% - 6px)', flexShrink:0, padding:'10px 12px'} : {}} />
+          {!isMobile && <Stat label="Active Trades" value={activeTrades.length} sub={botRunning?'Bot running':'Bot stopped'} color={botRunning?T.green:T.muted} size={isMobile ? 'sm' : 'md'} style={isMobile ? {minWidth:'calc(50% - 6px)', flexShrink:0, padding:'10px 12px'} : {}} />}
+          {!isMobile && <Stat label="Best Market" value={bestMarket?MSHORT[bestMarket.market]:'—'} sub={`Score ${bestMarket?.score||0}`} color={T.accent} size={isMobile ? 'sm' : 'md'} style={isMobile ? {minWidth:'calc(50% - 6px)', flexShrink:0, padding:'10px 12px'} : {}} />}
         </div>
       </div>
 
@@ -518,139 +522,151 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
           )}
           {(!isMobile || showDigitAnalysis) && (
             <div style={{ ...(isMobile ? { padding:'16px 18px', borderBottom:`1px solid ${T.border}` } : {}) }}>
-              <DigitAnalysis digits={scores[bestMarket?.market]?.digits} />
+              <DigitAnalysis digits={scores[bestMarket?.market]?.digits} isMobile={isMobile} />
             </div>
           )}
 
-          {isMobile && (
-            <button onClick={()=>setShowBotControl(s=>!s)}
-              style={{ ...css.btn, borderRadius:0, background:T.surface3, border:'none', borderBottom:showBotControl?`1px solid ${T.border}`:'none', width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
-              <span style={{ fontWeight:700, fontSize:11 }}>BOT CONTROL</span>
-              <span style={{ fontSize:10 }}>{showBotControl?'▲':'▼'}</span>
-            </button>
-          )}
-          {(!isMobile || showBotControl) && (
-            <div style={{ ...(isMobile ? { padding:'16px 18px', borderBottom:`1px solid ${T.border}` } : { ...css.card, display:'flex', flexDirection:'column', gap:14, flex:1 }) }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em' }}>Bot Control</div>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <select value={scannerMarket} onChange={e=>setScannerMarket(e.target.value)}
-                      style={{ background:T.surface3, color:T.accent, border:`1px solid ${T.border}`, borderRadius:4, padding:'2px 6px', fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", cursor:'pointer', outline:'none' }}>
-                      {MARKETS.map(sym => <option key={sym} value={sym}>{MSHORT[sym]}</option>)}
-                    </select>
-                    <span style={{ fontSize:10, color:T.muted, fontWeight:800 }}>AUTO</span>
-                    <button onClick={()=>setConfig(c=>({...c,autoSwitch:!c.autoSwitch}))}
-                      style={{ width:36, height:18, borderRadius:9, background:config.autoSwitch?T.green:T.dim, border:'none', position:'relative', cursor:'pointer' }}>
-                      <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', position:'absolute', top:2, left:config.autoSwitch?20:2, transition:'0.2s' }} />
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-                  {!isMobile && (
-                    <button onClick={()=>setBotRunning(r=>!r)}
-                      style={{ width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
-                        background: botRunning
-                          ? `linear-gradient(135deg,#00e676,#00c853)`
-                          : `linear-gradient(135deg,${T.accent},#c62828)`,
-                        color:'#fff',
-                        boxShadow: botRunning
-                          ? `0 0 40px #00e67680, 0 0 80px #00e67630, inset 0 1px 0 rgba(255,255,255,0.2)`
-                          : `0 0 40px ${T.accent}80, 0 0 80px ${T.accent}30, inset 0 1px 0 rgba(255,255,255,0.2)`,
-                        transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
-                      {botRunning ? '⏹' : '▶'}
-                    </button>
-                  )}
-                  {isMobile && (
-                    <button onClick={()=>setBotRunning(r=>!r)}
-                      style={{ position:'fixed', top:70, left:'50%', transform:'translateX(-50%)', zIndex:1000,
-                        width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
-                        background: botRunning
-                          ? `linear-gradient(135deg,#00e676,#00c853)`
-                          : `linear-gradient(135deg,${T.accent},#c62828)`,
-                        color:'#fff',
-                        boxShadow: botRunning
-                          ? `0 10px 40px #00e67680, inset 0 1px 0 rgba(255,255,255,0.2)`
-                          : `0 10px 40px ${T.accent}80, inset 0 1px 0 rgba(255,255,255,0.2)`,
-                        transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
-                      {botRunning ? '⏹' : '▶'}
-                    </button>
-                  )}
-                  <div>
-                    <div style={{ fontSize:16, fontWeight:700, color: botRunning?T.green:T.muted, fontFamily:"'Syne',sans-serif" }}>
-                      {botRunning ? 'BOT RUNNING' : 'BOT STOPPED'}
-                    </div>
-                    <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
-                      {botRunning ? `Trading on ${bestMarket?MSHORT[bestMarket.market]:'scanning...'}` : 'Press to start auto-trading'}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div style={css.label}>Active Strategies</div>
-                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                    {Object.entries(STRATEGIES).filter(([k,s]) => !s.hidden).map(([key,s]) => (
-                      <button key={key} onClick={()=>setConfig(c=>({...c,enabled:{...c.enabled,[key]:!c.enabled[key]}}))}
-                        style={{ ...css.btn, padding:'5px 12px', fontSize:12,
-                          background: config.enabled[key] ? (s.color==T.accent?T.accentDim:s.color==T.purple?T.purpleDim:T.greenDim) : 'transparent',
-                          color: config.enabled[key] ? s.color : T.muted,
-                          border:`1px solid ${config.enabled[key]?s.color+'44':T.border}` }}>
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <button onClick={()=>setShowRisk(s=>!s)}
-                  style={{ ...css.btn, background:T.surface3, border:`1px solid ${T.border}`, width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
-                  <span style={{ fontWeight:700, fontSize:11 }}>RISK PARAMETERS</span>
-                  <span style={{ fontSize:10 }}>{showRisk?'▲':'▼'}</span>
+          <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 16, width: '100%' }}>
+            <div style={{ display:'flex', flexDirection:'column', flex:1, gap:0 }}>
+              {isMobile && (
+                <button onClick={()=>setShowBotControl(s=>!s)}
+                  style={{ ...css.btn, borderRadius:0, background:T.surface3, border:'none', borderBottom:showBotControl?`1px solid ${T.border}`:'none', width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+                  <span style={{ fontWeight:700, fontSize:11 }}>BOT CONTROL</span>
+                  <span style={{ fontSize:10 }}>{showBotControl?'▲':'▼'}</span>
                 </button>
-                {showRisk && (
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, padding:10, background:T.dim, borderRadius:8 }}>
-                    <div>
-                      <label style={css.label}>Stake</label>
-                      <input style={css.input} type="number" step="0.01" min="0.35" value={config.baseStake}
-                        onChange={e=>setConfig(c=>({...c,baseStake:parseFloat(e.target.value)||0.35}))} />
+              )}
+              {(!isMobile || showBotControl) && (
+                <div style={{ ...(isMobile ? { padding:'16px 18px', borderBottom:`1px solid ${T.border}` } : { ...css.card, display:'flex', flexDirection:'column', gap:14, flex:1 }) }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em' }}>Bot Control</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <select value={scannerMarket} onChange={e=>setScannerMarket(e.target.value)}
+                          style={{ background:T.surface3, color:T.accent, border:`1px solid ${T.border}`, borderRadius:4, padding:'2px 6px', fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", cursor:'pointer', outline:'none' }}>
+                          {MARKETS.map(sym => <option key={sym} value={sym}>{MSHORT[sym]}</option>)}
+                        </select>
+                        <span style={{ fontSize:10, color:T.muted, fontWeight:800 }}>AUTO</span>
+                        <button onClick={()=>setConfig(c=>({...c,autoSwitch:!c.autoSwitch}))}
+                          style={{ width:36, height:18, borderRadius:9, background:config.autoSwitch?T.green:T.dim, border:'none', position:'relative', cursor:'pointer' }}>
+                          <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', position:'absolute', top:2, left:config.autoSwitch?20:2, transition:'0.2s' }} />
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+                      {!isMobile && (
+                        <button onClick={()=>setBotRunning(r=>!r)}
+                          style={{ width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
+                            background: botRunning
+                              ? `linear-gradient(135deg,#00e676,#00c853)`
+                              : `linear-gradient(135deg,${T.accent},#c62828)`,
+                            color:'#fff',
+                            boxShadow: botRunning
+                              ? `0 0 40px #00e67680, 0 0 80px #00e67630, inset 0 1px 0 rgba(255,255,255,0.2)`
+                              : `0 0 40px ${T.accent}80, 0 0 80px ${T.accent}30, inset 0 1px 0 rgba(255,255,255,0.2)`,
+                            transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
+                          {botRunning ? '⏹' : '▶'}
+                        </button>
+                      )}
+                      <div>
+                        <div style={{ fontSize:16, fontWeight:700, color: botRunning?T.green:T.muted, fontFamily:"'Syne',sans-serif" }}>
+                          {botRunning ? 'BOT RUNNING' : 'BOT STOPPED'}
+                        </div>
+                        <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
+                          {botRunning ? `Trading on ${bestMarket?MSHORT[bestMarket.market]:'scanning...'}` : 'Press to start auto-trading'}
+                        </div>
+                      </div>
                     </div>
                     <div>
-                      <label style={css.label}>Mart ×</label>
-                      <input style={css.input} type="number" step="0.5" min="1.5" max="5" value={config.multiplier}
-                        onChange={e=>setConfig(c=>({...c,multiplier:parseFloat(e.target.value)||2}))} />
+                      <div style={css.label}>Active Strategies</div>
+                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                        {Object.entries(STRATEGIES).filter(([k,s]) => !s.hidden).map(([key,s]) => (
+                          <button key={key} onClick={()=>setConfig(c=>({...c,enabled:{...c.enabled,[key]:!c.enabled[key]}}))}
+                            style={{ ...css.btn, padding:'5px 12px', fontSize:12,
+                              background: config.enabled[key] ? (s.color==T.accent?T.accentDim:s.color==T.purple?T.purpleDim:T.greenDim) : 'transparent',
+                              color: config.enabled[key] ? s.color : T.muted,
+                              border:`1px solid ${config.enabled[key]?s.color+'44':T.border}` }}>
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div>
-                      <label style={css.label}>Steps</label>
-                      <input style={css.input} type="number" step="1" min="2" max="8" value={config.maxSteps}
-                        onChange={e=>setConfig(c=>({...c,maxSteps:parseInt(e.target.value)||5}))} />
-                    </div>
-                    <div>
-                      <label style={css.label}>StopL</label>
-                      <input style={css.input} type="number" step="1" min="0" value={config.stopLoss}
-                        onChange={e=>setConfig(c=>({...c,stopLoss:parseFloat(e.target.value)||0}))} />
-                    </div>
-                    <div>
-                      <label style={css.label}>TakeP</label>
-                      <input style={css.input} type="number" step="1" min="0" value={config.takeProfit}
-                        onChange={e=>setConfig(c=>({...c,takeProfit:parseFloat(e.target.value)||0}))} />
-                    </div>
-                    <div>
-                      <label style={css.label}>Mode</label>
-                      <select style={{ ...css.input, padding:'0 5px' }} value={config.stakingMode}
-                        onChange={e=>setConfig(c=>({...c,stakingMode:e.target.value}))}>
-                        <option value="fibonacci">Fibonacci</option>
-                        <option value="martingale">Martingale</option>
-                        <option value="dalembert">D'Alembert</option>
-                        <option value="oscars">Oscar's Grind</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style={css.label}>Timer</label>
-                      <input style={css.input} type="number" step="5" min="0" value={timerLimit}
-                        onChange={e=>setTimerLimit(parseInt(e.target.value)||0)} />
-                    </div>
+                    <button onClick={()=>setShowRisk(s=>!s)}
+                      style={{ ...css.btn, background:T.surface3, border:`1px solid ${T.border}`, width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', color:T.text }}>
+                      <span style={{ fontWeight:700, fontSize:11 }}>RISK PARAMETERS</span>
+                      <span style={{ fontSize:10 }}>{showRisk?'▲':'▼'}</span>
+                    </button>
+                    {showRisk && (
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, padding:10, background:T.dim, borderRadius:8 }}>
+                        <div>
+                          <label style={css.label}>Stake</label>
+                          <input style={css.input} type="number" step="0.01" min="0.35" value={config.baseStake}
+                            onChange={e=>setConfig(c=>({...c,baseStake:parseFloat(e.target.value)||0.35}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>Mart ×</label>
+                          <input style={css.input} type="number" step="0.5" min="1.5" max="5" value={config.multiplier}
+                            onChange={e=>setConfig(c=>({...c,multiplier:parseFloat(e.target.value)||2}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>Steps</label>
+                          <input style={css.input} type="number" step="1" min="2" max="8" value={config.maxSteps}
+                            onChange={e=>setConfig(c=>({...c,maxSteps:parseInt(e.target.value)||5}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>StopL</label>
+                          <input style={css.input} type="number" step="1" min="0" value={config.stopLoss}
+                            onChange={e=>setConfig(c=>({...c,stopLoss:parseFloat(e.target.value)||0}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>TakeP</label>
+                          <input style={css.input} type="number" step="1" min="0" value={config.takeProfit}
+                            onChange={e=>setConfig(c=>({...c,takeProfit:parseFloat(e.target.value)||0}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>Mode</label>
+                          <select style={{ ...css.input, padding:'0 5px' }} value={config.stakingMode}
+                            onChange={e=>setConfig(c=>({...c,stakingMode:e.target.value}))}>
+                            <option value="fibonacci">Fibonacci</option>
+                            <option value="martingale">Martingale</option>
+                            <option value="dalembert">D'Alembert</option>
+                            <option value="oscars">Oscar's Grind</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={css.label}>Timer</label>
+                          <input style={css.input} type="number" step="5" min="0" value={timerLimit}
+                            onChange={e=>setTimerLimit(parseInt(e.target.value)||0)} />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
-          )}
+
+            {!isMobile && (
+              <div style={{ ...css.card, flex:1 }}>
+                <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Market Radar</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {MARKETS.map(sym => {
+                    const sc = scores[sym];
+                    const s = sc?.score||0;
+                    const m = sc?.evenodd;
+                    const rec = m ? (m.rec===0?'EVEN':m.rec===1?'ODD':'—') : '—';
+                    const recColor = m?.rec===0?T.accent:m?.rec===1?T.purple:T.muted;
+                    return (
+                      <div key={sym} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        <div style={{ width:36, fontSize:12, fontWeight:600, color:T.accent, fontFamily:"'JetBrains Mono',monospace" }}>{MSHORT[sym]}</div>
+                        <div style={{ flex:1 }}><ScoreBar score={s} /></div>
+                        <div style={{ width:30, fontSize:12, color:T.muted, fontFamily:"'JetBrains Mono',monospace" }}>{s}</div>
+                        <div style={{ width:40, fontSize:11, color:recColor, textAlign:'right', fontWeight:600 }}>{rec}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           {isMobile && (
             <button onClick={()=>setShowTickFlow(s=>!s)}
@@ -662,29 +678,6 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
           {(!isMobile || showTickFlow) && (
             <div style={{ ...(isMobile ? { padding:'16px 18px' } : {}) }}>
               <TickFlow digits={scores[bestMarket?.market]?.digits} />
-            </div>
-          )}
-
-          {!isMobile && (
-            <div style={{ ...css.card, flex:1, marginTop:16 }}>
-              <div style={{ fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Market Radar</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {MARKETS.map(sym => {
-                  const sc = scores[sym];
-                  const s = sc?.score||0;
-                  const m = sc?.evenodd;
-                  const rec = m ? (m.rec===0?'EVEN':m.rec===1?'ODD':'—') : '—';
-                  const recColor = m?.rec===0?T.accent:m?.rec===1?T.purple:T.muted;
-                  return (
-                    <div key={sym} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div style={{ width:36, fontSize:12, fontWeight:600, color:T.accent, fontFamily:"'JetBrains Mono',monospace" }}>{MSHORT[sym]}</div>
-                      <div style={{ flex:1 }}><ScoreBar score={s} /></div>
-                      <div style={{ width:30, fontSize:12, color:T.muted, fontFamily:"'JetBrains Mono',monospace" }}>{s}</div>
-                      <div style={{ width:40, fontSize:11, color:recColor, textAlign:'right', fontWeight:600 }}>{rec}</div>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           )}
         </div>
@@ -760,6 +753,22 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
       </div>
         </div>
       </div>
+      
+      {isMobile && (
+        <button onClick={()=>setBotRunning(r=>!r)}
+          style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', zIndex:1000,
+            width:72, height:72, borderRadius:'50%', border:'none', cursor:'pointer', fontSize:26,
+            background: botRunning
+              ? `linear-gradient(135deg,#00e676,#00c853)`
+              : `linear-gradient(135deg,${T.accent},#c62828)`,
+            color:'#fff',
+            boxShadow: botRunning
+              ? `0 10px 40px #00e67680, inset 0 1px 0 rgba(255,255,255,0.2)`
+              : `0 10px 40px ${T.accent}80, inset 0 1px 0 rgba(255,255,255,0.2)`,
+            transition:'all 0.3s', flexShrink:0, fontWeight:900 }}>
+          {botRunning ? '⏹' : '▶'}
+        </button>
+      )}
     </div>
   );
 }
