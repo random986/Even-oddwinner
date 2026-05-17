@@ -57,75 +57,27 @@ function poissonCDF(k, lambda) {
   return Math.min(1, sum);
 }
 
-/* Full Poisson analysis for digit streams */
+/* Strict Poisson analysis for 20-tick digit streams */
 function poissonAnalysis(digits, mode = 'evenodd') {
-  if (!digits || digits.length < 30) return null;
+  if (!digits || digits.length < 20) return null;
   
   const classify = d => {
-    if (mode === 'evenodd') return d % 2 === 0; // true = even (state 0)
+    if (mode === 'evenodd') return d % 2 === 0; // true = even
     if (mode === 'over5')   return d > 5;
     if (mode === 'under5')  return d < 5;
     return false;
   };
   
-  // Sliding windows: short (last 10), medium (last 30), full
-  const windows = [10, 30, digits.length];
-  const results = windows.map(w => {
-    const slice = digits.slice(-w);
-    const observed = slice.filter(classify).length;
-    const baseline = mode === 'over5' ? 0.4 : mode === 'under5' ? 0.5 : 0.5;
-    const lambda = w * baseline; // Expected count under null hypothesis
-    
-    // P(X ≤ observed) — how likely is it to see this few or fewer?
-    const pLow = poissonCDF(observed, lambda);
-    // P(X ≥ observed) = 1 - P(X ≤ observed-1)
-    const pHigh = 1 - poissonCDF(observed - 1, lambda);
-    
-    // Deviation: how far observed is from expected, normalized
-    const deviation = (observed - lambda) / Math.sqrt(lambda || 1);
-    
-    return { window: w, observed, expected: lambda, pLow, pHigh, deviation, rate: observed / w };
-  });
+  const slice = digits.slice(-20);
+  const observed = slice.filter(classify).length;
+  const baseline = mode === 'over5' ? 0.4 : mode === 'under5' ? 0.5 : 0.5;
+  const lambda = 20 * baseline; // Expected count under null hypothesis (8 or 10)
   
-  const short = results[0], med = results[1], full = results[2];
+  // P(X ≥ observed) = 1 - P(X ≤ observed-1)
+  const pValue = 1 - poissonCDF(Math.max(0, observed - 1), lambda);
+  const pLow = poissonCDF(observed, lambda); // P(X <= observed)
   
-  // Signal: if short-term rate deviates significantly from long-term rate,
-  // mean reversion is likely. This is the core Poisson edge.
-  const shortRate = short.rate;
-  const longRate = full.rate;
-  const rateDeviation = Math.abs(shortRate - longRate);
-  
-  // Entry signal: 
-  //  - If short window shows far fewer target digits than expected → target is "due" → BUY target
-  //  - If short window shows far more target digits than expected → opposite is "due" → BUY opposite
-  let signal = 0; // 0 = buy target (even/over), 1 = buy opposite (odd/under)
-  let confidence = 0;
-  
-  if (short.pLow < 0.15) {
-    // Significantly fewer target digits than expected → target is due (mean reversion)
-    signal = 0;
-    confidence = 1 - short.pLow;
-  } else if (short.pHigh < 0.15) {
-    // Significantly more target digits → opposite is due
-    signal = 1;
-    confidence = 1 - short.pHigh;
-  } else {
-    // No significant deviation — weak signal
-    confidence = 0.5 + rateDeviation;
-  }
-  
-  // Poisson edge score (0-100)
-  const edgeScore = Math.min(100, Math.round(
-    rateDeviation * 200 +
-    Math.abs(med.deviation) * 15 +
-    (confidence - 0.5) * 60
-  ));
-  
-  return {
-    short, med, full,
-    signal, confidence, edgeScore,
-    shortRate, longRate, rateDeviation
-  };
+  return { observed, lambda, pValue, pLow };
 }
 
 /* Regression / Tightness Analysis */
@@ -193,32 +145,37 @@ function scoreAllMarkets(buffers) {
   const out = {};
   for (const sym of MARKETS) {
     const digs = buffers[sym] || [];
+    
+    // UI still needs Markov stats for some components
     const m = computeMarkov(digs, 'evenodd');
     const over = computeMarkov(digs, 'over5');
     const under = computeMarkov(digs, 'under5');
+    const tightness = analyzeTightness(digs);
     
-    // Poisson analysis for each mode
+    // Strict Poisson Analysis (20 ticks)
     const pEO = poissonAnalysis(digs, 'evenodd');
+    const pOdd = { observed: 20 - (pEO?.observed || 10), lambda: 10, pValue: pEO ? (1 - poissonCDF(Math.max(0, 19 - pEO.observed), 10)) : 1 };
+    
     const pOver = poissonAnalysis(digs, 'over5');
     const pUnder = poissonAnalysis(digs, 'under5');
     
-    // Combined scores per mode: Markov (60%) + Poisson edge (40%)
-    const scoreEO = Math.round((m ? m.score : 0) * 0.6 + (pEO ? pEO.edgeScore : 0) * 0.4);
-    const scoreOver = Math.round((over ? over.score : 0) * 0.6 + (pOver ? pOver.edgeScore : 0) * 0.4);
-    const scoreUnder = Math.round((under ? under.score : 0) * 0.6 + (pUnder ? pUnder.edgeScore : 0) * 0.4);
-    
-    // Overall best score to represent the market
-    const maxScore = Math.max(scoreEO, scoreOver, scoreUnder);
-    
-    const tightness = analyzeTightness(digs);
-    const stability = m ? m.stability : 0;
+    // Neutrality Scores: |obs_A - lam_A| + |obs_B - lam_B|
+    let nu5 = 100, neo = 100;
+    if (pOver && pUnder) {
+      nu5 = Math.abs(pOver.observed - pOver.lambda) + Math.abs(pUnder.observed - pUnder.lambda);
+    }
+    if (pEO) {
+      neo = Math.abs(pEO.observed - pEO.lambda) + Math.abs(pOdd.observed - pOdd.lambda);
+    }
     
     out[sym] = {
       evenodd: m, over5: over, under5: under,
-      poisson: { evenodd: pEO, over5: pOver, under5: pUnder },
-      scores: { evenodd: scoreEO, over5: scoreOver, under5: scoreUnder },
-      score: maxScore,
-      tightness, stability,
+      tightness, stability: m ? m.stability : 0,
+      poisson: { evenodd: pEO, odd: pOdd, over5: pOver, under5: pUnder },
+      neutrality: { evenodd: neo, over5: nu5 },
+      // Translate lowest neutrality to a high score (0-100) for UI compatibility
+      score: 100 - (nu5 * 10),
+      scores: { evenodd: 100 - (neo * 10), over5: 100 - (nu5 * 10), under5: 100 - (nu5 * 10) },
       digits: [...digs]
     };
   }
@@ -226,61 +183,18 @@ function scoreAllMarkets(buffers) {
 }
 
 function getBestMarket(scored, mode = 'score') {
-  let best=null, bestScore=-1;
+  let best = null, bestScore = Infinity; // We want LOWEST neutrality (most balanced)
   for (const sym of MARKETS) {
     const data = scored[sym];
-    let s = 0;
-    if (mode === 'score') s = data?.score || 0;
-    else if (mode === 'evenodd') s = data?.scores?.evenodd || 0;
-    else if (mode === 'over5') s = data?.scores?.over5 || 0;
-    else if (mode === 'under5') s = data?.scores?.under5 || 0;
-    else if (mode === 'both' || mode === 'both5') {
-      // For dual-hedge, we want MAXIMUM ALTERNATION (chop) to prevent streaks on either side.
-      const m = mode === 'both5' ? data?.over5 : data?.evenodd;
-      if (m && m.matrix) {
-        const p01 = m.matrix[0][1];
-        const p10 = m.matrix[1][0];
-        const altScore = ((p01 + p10) / 2) * 100;
-        const streakPenalty = m.streak * 8; // heavier penalty for streaks
-        // Also measure recent alternation and historical streaks in last 14 ticks
-        const digs = data?.digits || [];
-        let recentAlt = 0;
-        let maxStreak = 0;
-        let balanceRatio = 0.5;
-        
-        if (digs.length >= 20) {
-          const last20 = digs.slice(-20);
-          const classify20 = d => mode === 'both5' ? (d > 5 ? 0 : 1) : (d % 2 === 0 ? 0 : 1);
-          const st20 = last20.map(classify20);
-          balanceRatio = st20.filter(x => x === 0).length / 20;
-        }
-
-        if (digs.length >= 14) {
-          const last14 = digs.slice(-14);
-          const classify = d => mode === 'both5' ? (d > 5 ? 0 : 1) : (d % 2 === 0 ? 0 : 1);
-          const st = last14.map(classify);
-          let currentStreak = 1;
-          for (let i = 0; i < st.length - 1; i++) { 
-            if (st[i] !== st[i+1]) {
-              recentAlt++; 
-              currentStreak = 1;
-            } else {
-              currentStreak++;
-              if (currentStreak > maxStreak) maxStreak = currentStreak;
-            }
-          }
-          recentAlt = (recentAlt / (st.length - 1)) * 100; // 0-100
-        }
-        
-        const isImbalanced = balanceRatio < 0.35 || balanceRatio > 0.65;
-        // If recent alternation < 45%, it had a streak of 4+ recently, or market is imbalanced (slow bleed risk)
-        s = (recentAlt < 45 || maxStreak >= 4 || isImbalanced) ? -100 : altScore + (recentAlt * 0.3) - streakPenalty;
-      }
+    // Select the market with the lowest neutrality (i.e. perfectly balanced, hunting anomalies)
+    const s = (mode === 'both5' || mode === 'over5_recovery' || mode === 'under5_recovery') 
+              ? data?.neutrality?.over5 : data?.neutrality?.evenodd;
+    if (s != null && s < bestScore) {
+      bestScore = s;
+      best = sym;
     }
-    
-    if (s > bestScore) { bestScore = s; best = sym; }
   }
-  return { market: best || '1HZ50V', score: bestScore };
+  return { market: best || MARKETS[0], score: bestScore };
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -636,6 +550,29 @@ function HomePage({ conn, botRunning, setBotRunning, config, setConfig, channels
                           <label style={css.label}>Timer</label>
                           <input style={css.input} type="number" step="5" min="0" value={timerLimit}
                             onChange={e=>setTimerLimit(parseInt(e.target.value)||0)} />
+                        </div>
+                        <div>
+                          <label style={css.label}>AntiMart</label>
+                          <select style={{ ...css.input, padding:'0 5px' }} value={config.useAntiMartingale?'on':'off'}
+                            onChange={e=>setConfig(c=>({...c,useAntiMartingale:e.target.value==='on'}))}>
+                            <option value="off">Off</option>
+                            <option value="on">On</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={css.label}>AMart ×</label>
+                          <input style={css.input} type="number" step="0.5" min="1.1" max="5" value={config.amMultiplier}
+                            onChange={e=>setConfig(c=>({...c,amMultiplier:parseFloat(e.target.value)||2.0}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>AM Max</label>
+                          <input style={css.input} type="number" step="1" min="1" max="10" value={config.amMaxSteps||3}
+                            onChange={e=>setConfig(c=>({...c,amMaxSteps:parseInt(e.target.value)||3}))} />
+                        </div>
+                        <div>
+                          <label style={css.label}>Switch/L</label>
+                          <input style={css.input} type="number" step="1" min="1" max="10" value={config.switchAfter}
+                            onChange={e=>setConfig(c=>({...c,switchAfter:parseInt(e.target.value)||1}))} />
                         </div>
                       </div>
                     )}
@@ -1066,6 +1003,34 @@ function RiskMgmtPage({ config, setConfig }) {
               onChange={e=>setConfig(c=>({...c,maxSteps:parseInt(e.target.value)||8}))} />
           </div>
         </div>
+
+        {/* Win Compounding Modifier */}
+        <div style={{ marginTop:16, borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:T.text }}>Win Compounding (Anti-Martingale)</div>
+            <button style={{ ...css.btn, background:config.useAntiMartingale?T.green:T.surface3, color:config.useAntiMartingale?'#000':T.text, padding:'4px 10px', fontSize:11 }}
+              onClick={()=>setConfig(c=>({...c,useAntiMartingale:!c.useAntiMartingale}))}>
+              {config.useAntiMartingale?'ENABLED':'DISABLED'}
+            </button>
+          </div>
+          {config.useAntiMartingale && (
+            <div>
+              <label style={css.label}>Win Multiplier (× on win)</label>
+              <input style={css.input} type="number" step="0.5" min="1.1" max="5.0" value={config.amMultiplier}
+                onChange={e=>setConfig(c=>({...c,amMultiplier:parseFloat(e.target.value)||2.0}))} />
+              <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>Compounds profits after a win. Resets to normal recovery on loss.</div>
+            </div>
+          )}
+          {config.useAntiMartingale && (
+            <div>
+              <label style={css.label}>Max Compound Wins</label>
+              <input style={css.input} type="number" step="1" min="1" max="10" value={config.amMaxSteps||3}
+                onChange={e=>setConfig(c=>({...c,amMaxSteps:parseInt(e.target.value)||3}))} />
+              <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>Banks the profit and resets to base stake after this many consecutive wins. (REQUIRED to secure profit).</div>
+            </div>
+          )}
+        </div>
+
         <div style={{ marginTop:14, padding:12, background:T.surface3, borderRadius:8 }}>
           <div style={{ fontSize:11, color:T.muted, marginBottom:8 }}>{modeLabels[config.stakingMode]} Stake Progression</div>
           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
@@ -1457,18 +1422,19 @@ export default function App() {
   const [botRunning, setBotRunning] = useState(false);
   const [scannerMarket, setScannerMarket] = useState('1HZ50V');
   const [config, setConfig] = useState({
-    baseStake:0.35, multiplier:2.1, maxSteps:8, switchAfter:1, hardLimit:6,
+    baseStake:0.35, multiplier:2.1, maxSteps:5, switchAfter:1, hardLimit:6,
     minScore:75, minConfidence:0.85, stopLoss:0, takeProfit:0, autoSwitch: true,
     stakingMode: 'fibonacci',
+    useAntiMartingale: false, amMultiplier: 2.0, amMaxSteps: 3,
     enabled:{ EVEN:false, ODD:false, BOTH:true, MATCH:false, OVER5:false, UNDER5:false, BOTH5:true }
   });
   const [scores, setScores] = useState({});
   const [channels, setChannels] = useState({
-    EVEN: { stake:0.35, step:0, losses:0, active:false, sessionProfit:0 },
-    ODD:  { stake:0.35, step:0, losses:0, active:false, sessionProfit:0 },
-    MATCH:{ stake:0.35, step:0, losses:0, active:false, sessionProfit:0 },
-    OVER5:{ stake:0.35, step:0, losses:0, active:false, sessionProfit:0 },
-    UNDER5:{ stake:0.35, step:0, losses:0, active:false, sessionProfit:0 },
+    EVEN: { stake:0.35, step:0, winStep:0, losses:0, active:false, sessionProfit:0, lastLossTick:0 },
+    ODD:  { stake:0.35, step:0, winStep:0, losses:0, active:false, sessionProfit:0, lastLossTick:0 },
+    MATCH:{ stake:0.35, step:0, winStep:0, losses:0, active:false, sessionProfit:0, lastLossTick:0 },
+    OVER5:{ stake:0.35, step:0, winStep:0, losses:0, active:false, sessionProfit:0, lastLossTick:0 },
+    UNDER5:{ stake:0.35, step:0, winStep:0, losses:0, active:false, sessionProfit:0, lastLossTick:0 },
   });
   const [activeTrades, setActiveTrades] = useState([]);
   const [history, setHistory] = useState(() => {
@@ -1491,6 +1457,7 @@ export default function App() {
   const reqIdRef = useRef(1);
   const buffersRef = useRef({});
   const botRef = useRef({ running:false, paused:false, consecutiveLosses:0 });
+  const tickCountRef = useRef(0);
   const configRef = useRef(config);
   const chanRef = useRef(channels);
   const activeRef = useRef({});
@@ -1606,6 +1573,7 @@ export default function App() {
 
   /* ── Tick handler ── */
   const handleTick = useCallback((tick) => {
+    tickCountRef.current++;
     const sym = tick.symbol;
     const digit = extractDigit(tick.quote);
     if (!buffersRef.current[sym]) buffersRef.current[sym] = [];
@@ -1650,35 +1618,53 @@ export default function App() {
       
       const chOver = chanRef.current['OVER5'];
       const chUnder = chanRef.current['UNDER5'];
+      
+      let targetRecoveryMode = 'both5';
+      if (chOver && chUnder) {
+        if (chOver.step > chUnder.step && chOver.step >= 1) {
+          targetRecoveryMode = 'over5_recovery';
+        } else if (chUnder.step > chOver.step && chUnder.step >= 1) {
+          targetRecoveryMode = 'under5_recovery';
+        }
+      }
+      
       const inRecovery = (chOver && chOver.step > 0) || (chUnder && chUnder.step > 0);
       
       // During recovery, ALWAYS find the best market regardless of autoSwitch
       let best = marketOverride;
       if (inRecovery) {
-        best = getBestMarket(scored, 'both5').market;
+        best = getBestMarket(scored, targetRecoveryMode).market;
       } else if (cfg.autoSwitch) {
         best = getBestMarket(scored, 'both5').market;
       } else if (!best) {
         best = scannerMarket;
       }
       
-      // Safety: check recent alternation rate and imbalance — must be > 45%, no bursting streaks, and balanced
-      const chop = analyzeChop(buf[best] || [], 'over5');
-      const streak = scored[best]?.over5?.streak || 0;
-      const isImbalanced = chop.balanceRatio < 0.35 || chop.balanceRatio > 0.65;
-      if (chop.altRate < 0.45 || chop.maxStreak >= 4 || streak > 2 || isImbalanced) {
-        // Market is trending — wait and re-poll
-        if (botRef.current.running) setTimeout(() => placeTrade('BOTH5', null), 1500);
-        return;
-      }
-
+      // Safety removed: Since BOTH5 now dynamically surfs ONE side at a time, it is fully safe to trade in trending markets!
+      
       if (chOver?.active || chUnder?.active) {
         if (botRef.current.running) setTimeout(() => placeTrade('BOTH5', best), 1500);
         return;
       }
       
-      if (chOver && !chOver.active) placeTrade('OVER5', best, 'BOTH5');
-      if (chUnder && !chUnder.active) placeTrade('UNDER5', best, 'BOTH5');
+      const markov = scored[best]?.over5;
+      
+      if (targetRecoveryMode === 'over5_recovery') {
+        if (chOver && !chOver.active) placeTrade('OVER5', best, 'BOTH5');
+      } else if (targetRecoveryMode === 'under5_recovery') {
+        if (chUnder && !chUnder.active) placeTrade('UNDER5', best, 'BOTH5');
+      } else {
+        // Trade in the direction of the trend based on Markov recommendation
+        if (markov && markov.rec === 0 && chOver && !chOver.active) placeTrade('OVER5', best, 'BOTH5');
+        else if (markov && markov.rec === 1 && chUnder && !chUnder.active) placeTrade('UNDER5', best, 'BOTH5');
+      }
+      
+      setTimeout(() => {
+        const pendingOrActive = Object.values(activeRef.current).some(t => t.fromBoth === 'BOTH5');
+        if (!pendingOrActive && botRef.current.running) {
+           placeTrade('BOTH5', best);
+        }
+      }, 1000);
       return;
     }
     
@@ -1689,37 +1675,54 @@ export default function App() {
       
       const chEven = chanRef.current['EVEN'];
       const chOdd = chanRef.current['ODD'];
+      
+      let targetRecoveryMode = 'both';
+      if (chEven && chOdd) {
+        if (chEven.step > chOdd.step && chEven.step >= 1) {
+          targetRecoveryMode = 'even_recovery';
+        } else if (chOdd.step > chEven.step && chOdd.step >= 1) {
+          targetRecoveryMode = 'odd_recovery';
+        }
+      }
+      
       const inRecovery = (chEven && chEven.step > 0) || (chOdd && chOdd.step > 0);
       
       // During recovery, ALWAYS find the best market regardless of autoSwitch
       let best = marketOverride;
       if (inRecovery) {
-        best = getBestMarket(scored, 'both').market;
+        best = getBestMarket(scored, targetRecoveryMode).market;
       } else if (cfg.autoSwitch) {
         best = getBestMarket(scored, 'both').market;
       } else if (!best) {
         best = scannerMarket;
       }
       
-      // Safety: check recent alternation rate and imbalance — must be > 45%, no bursting streaks, and balanced
-      const chop = analyzeChop(buf[best] || [], 'evenodd');
-      const streak = scored[best]?.evenodd?.streak || 0;
-      const isImbalanced = chop.balanceRatio < 0.35 || chop.balanceRatio > 0.65;
-      if (chop.altRate < 0.45 || chop.maxStreak >= 4 || streak > 2 || isImbalanced) {
-        // Market is trending — wait and re-poll
-        if (botRef.current.running) setTimeout(() => placeTrade('BOTH', null), 1500);
-        return;
-      }
-
+      // Safety removed: Since BOTH now dynamically surfs ONE side at a time, it is fully safe to trade in trending markets!
+      
       // Ensure we only trigger if both channels are fully idle
       if (chEven?.active || chOdd?.active) {
         if (botRef.current.running) setTimeout(() => placeTrade('BOTH', best), 1500);
         return;
       }
       
-      // Fire both simultaneously on the EXACT same market
-      if (chEven && !chEven.active) placeTrade('EVEN', best, true);
-      if (chOdd && !chOdd.active) placeTrade('ODD', best, true);
+      // Fire based on trend recommendation
+      const markov = scored[best]?.evenodd;
+      
+      if (targetRecoveryMode === 'even_recovery') {
+        if (chEven && !chEven.active) placeTrade('EVEN', best, 'BOTH');
+      } else if (targetRecoveryMode === 'odd_recovery') {
+        if (chOdd && !chOdd.active) placeTrade('ODD', best, 'BOTH');
+      } else {
+        if (markov && markov.rec === 0 && chEven && !chEven.active) placeTrade('EVEN', best, 'BOTH');
+        else if (markov && markov.rec === 1 && chOdd && !chOdd.active) placeTrade('ODD', best, 'BOTH');
+      }
+
+      setTimeout(() => {
+        const pendingOrActive = Object.values(activeRef.current).some(t => t.fromBoth === 'BOTH');
+        if (!pendingOrActive && botRef.current.running) {
+           placeTrade('BOTH', best);
+        }
+      }, 1000);
       return;
     }
     
@@ -1728,7 +1731,7 @@ export default function App() {
     const isEnabled = cfg.enabled[channelKey] || _fromBoth;
     if (!ch || ch.active || !isEnabled) return;
     if (botRef.current.paused && botRef.current.consecutiveLosses >= cfg.hardLimit) {
-      if (botRef.current.running) setTimeout(() => placeTrade(channelKey), 2000); return;
+      if (botRef.current.running) setTimeout(() => placeTrade(channelKey, marketOverride, _fromBoth), 2000); return;
     }
 
     const buf = buffersRef.current;
@@ -1748,10 +1751,38 @@ export default function App() {
     const stratScore = sc.scores?.[strategyMode] || 0;
     const strat = STRATEGIES[channelKey];
     
-    // ── RECOVERY MODE: If step > 0, we MUST fire immediately to recover losses ──
+    // ── COOLDOWN GATE (Applies to all entries) ──
+    if (ch.losses >= 2) {
+      const ticksSinceLoss = tickCountRef.current - (ch.lastLossTick || 0);
+      if (ticksSinceLoss < 3) {
+        if (botRef.current.running && !_fromBoth) setTimeout(() => placeTrade(channelKey, marketOverride, _fromBoth), 1000);
+        return; // Paused for at least 3 ticks
+      }
+      
+      const last3 = digs.slice(-3);
+      let targetCount = 0;
+      if (channelKey === 'EVEN') targetCount = last3.filter(d => d % 2 === 0).length;
+      else if (channelKey === 'ODD') targetCount = last3.filter(d => d % 2 !== 0).length;
+      else if (channelKey === 'OVER5') targetCount = last3.filter(d => d > 5).length;
+      else if (channelKey === 'UNDER5') targetCount = last3.filter(d => d < 5).length;
+      else targetCount = 2; // MATCH bypasses this
+      
+      if (targetCount < 2) {
+        if (botRef.current.running && !_fromBoth) setTimeout(() => placeTrade(channelKey, marketOverride, _fromBoth), 1000);
+        return; // Waiting for frequency confirmation (2 out of 3 ticks)
+      }
+    }
+
+    // ── RECOVERY MODE: If step > 0, we MUST fire immediately to recover losses (if not in cooldown) ──
     const inRecovery = ch.step > 0;
     
-    if (!inRecovery) {
+    if (inRecovery) {
+      // Recovery Score Gate: ensure the selected directional market is actually good!
+      if (stratScore < 45 && !_fromBoth) {
+        if (botRef.current.running) setTimeout(() => placeTrade(channelKey, marketOverride, _fromBoth), 1500);
+        return;
+      }
+    } else {
       // Only apply gates on fresh (step 0) entries
       if (markov && (channelKey === 'EVEN' || channelKey === 'ODD')) {
         const cfg2 = configRef.current;
@@ -1773,7 +1804,7 @@ export default function App() {
       else if (channelKey === 'MATCH') clustered = true;
       if (_fromBoth) clustered = true;
       
-      if (!clustered && stratScore < 80) {
+      if (!clustered && stratScore < 80 && !_fromBoth) {
         if (botRef.current.running) setTimeout(() => placeTrade(channelKey, marketOverride, _fromBoth), 1500); 
         return;
       }
@@ -1901,6 +1932,8 @@ export default function App() {
       const unit = cfg.baseStake;
       let newStep, newStake, newLosses, newSessionProfit;
 
+      let newWinStep = won ? (ch.winStep || 0) + 1 : 0;
+
       if (cfg.stakingMode === 'oscars') {
         // ── Oscar's Grind ──
         // After a loss: keep same stake
@@ -1913,6 +1946,7 @@ export default function App() {
           newStep = 0;
           newLosses = 0;
           newSessionProfit = 0;
+          newWinStep = 0;
         } else if (won) {
           // Win: increase stake by 1 unit, but cap so we don't overshoot the target
           const targetRemaining = unit - newSessionProfit;
@@ -1941,18 +1975,22 @@ export default function App() {
         }
       } else if (cfg.stakingMode === 'fibonacci') {
         // ── Fibonacci ──
-        // Sequence: 1, 1, 2, 3, 5, 8, 13, 21, 34, 55...
-        // After a loss: move 1 step forward
-        // After a win: move 2 steps back (min 0) — recovers gradually
-        // Much safer than Martingale for small accounts
         const fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
         newSessionProfit = (ch.sessionProfit || 0) + profit;
         if (won) {
           newStep = Math.max(0, ch.step - 2); // Go back 2 steps
           if (newStep === 0) {
-            // Fully recovered — reset
-            newStake = unit;
             newLosses = 0;
+            if (cfg.useAntiMartingale && ch.step === 0) {
+              if (newWinStep > (cfg.amMaxSteps || 3)) {
+                newStake = unit;
+                newWinStep = 0; // Reset streak, profit banked!
+              } else {
+                newStake = parseFloat((ch.stake * cfg.amMultiplier).toFixed(2));
+              }
+            } else {
+              newStake = unit;
+            }
           } else {
             newStake = unit * (fib[newStep] || fib[fib.length - 1]);
             newLosses = ch.losses;
@@ -1964,16 +2002,29 @@ export default function App() {
         }
       } else {
         // ── Martingale ──
-        // After a loss: multiply stake by multiplier
-        // After a win: reset to base stake
         newSessionProfit = (ch.sessionProfit || 0) + profit;
-        newStep = won ? 0 : Math.min(ch.step + 1, cfg.maxSteps);
-        newStake = won ? unit : parseFloat((unit * Math.pow(cfg.multiplier, newStep)).toFixed(2));
-        newLosses = won ? 0 : ch.losses + 1;
+        if (won) {
+          newStep = 0;
+          newLosses = 0;
+          if (cfg.useAntiMartingale && ch.step === 0) {
+            if (newWinStep > (cfg.amMaxSteps || 3)) {
+              newStake = unit;
+              newWinStep = 0;
+            } else {
+              newStake = parseFloat((ch.stake * cfg.amMultiplier).toFixed(2));
+            }
+          } else {
+            newStake = unit;
+          }
+        } else {
+          newStep = Math.min(ch.step + 1, cfg.maxSteps);
+          newStake = parseFloat((unit * Math.pow(cfg.multiplier, newStep)).toFixed(2));
+          newLosses = ch.losses + 1;
+        }
       }
 
       newStake = parseFloat(Math.max(unit, newStake).toFixed(2));
-      return { ...prev, [channelKey]: { stake:newStake, step:newStep, losses:newLosses, active:false, sessionProfit:newSessionProfit||0 } };
+      return { ...prev, [channelKey]: { stake:newStake, step:newStep, winStep: newWinStep, losses:newLosses, active:false, sessionProfit:newSessionProfit||0, lastLossTick: won ? (ch.lastLossTick || 0) : tickCountRef.current } };
     });
 
     // Check hard limit
@@ -2214,7 +2265,7 @@ export default function App() {
           {/* Page content */}
           <div style={{ flex:1, overflow:'auto', padding:20 }}>
             {page==='home'     && <HomePage {...pageProps}/>}
-            {page==='scanner'  && <ScannerPage scores={scores} currentMarket={scannerMarket} onSwitchMarket={setScannerMarket}/>}
+            {page==='scanner'  && <ScannerPage scores={scores} currentMarket={scannerMarket} onSwitchMarket={setScannerMarket} pThreshold={config.pThreshold || 0.15}/>}
             {page==='records'  && <RecordsPage history={history} stats={stats}/>}
             {page==='copy'     && <CopyTradePage history={history} stats={stats} botRunning={botRunning} copyConfig={copyConfig} setCopyConfig={setCopyConfig} copyStatus={copyStatus}/>}
             {page==='followers'&& <FollowersPage/>}

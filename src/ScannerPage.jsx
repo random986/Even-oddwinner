@@ -29,38 +29,31 @@ function getStreak(digits, test) {
   return streak;
 }
 
-function computeEvenOddRank(digits, tradingSide) {
-  if (!digits || digits.length < 10) return { score:0, streak:0, signal:'--', confidence:0, evenPct:50, oddPct:50 };
-  const n = digits.length;
-  const evenCount = digits.filter(d => d%2===0).length;
-  const evenPct = Math.round(evenCount/n*100);
-  const oddPct = 100 - evenPct;
-  // Priority: if trading EVEN, rank markets with most consecutive ODD streaks
-  const isOdd = d => d%2!==0;
-  const isEven = d => d%2===0;
-  const oppStreak = tradingSide === 'EVEN' ? getStreak(digits, isOdd) : getStreak(digits, isEven);
-  const dominance = tradingSide === 'EVEN' ? oddPct : evenPct;
-  const score = Math.min(100, Math.round(oppStreak * 12 + dominance * 0.5));
-  const signal = oppStreak >= 4 ? 'STRONG' : oppStreak >= 2 ? 'MODERATE' : 'WEAK';
-  const confidence = Math.min(99, Math.round(oppStreak * 15 + dominance * 0.3));
-  return { score, streak:oppStreak, signal, confidence, evenPct, oddPct };
-}
-
-function computeOverUnderRank(digits, tradingSide) {
-  if (!digits || digits.length < 10) return { score:0, streak:0, signal:'--', confidence:0, overPct:50, underPct:50 };
-  const n = digits.length;
-  const overCount = digits.filter(d => d > 4).length;
-  const overPct = Math.round(overCount/n*100);
-  const underPct = 100 - overPct;
-  const isOver = d => d > 4;
-  const isUnder = d => d <= 4;
-  // For OVER trade, rank by highest over count; for UNDER, rank by highest under count
-  const streak = tradingSide === 'OVER' ? getStreak(digits, isOver) : getStreak(digits, isUnder);
-  const dominance = tradingSide === 'OVER' ? overPct : underPct;
-  const score = Math.min(100, Math.round(streak * 10 + dominance * 0.8));
-  const signal = dominance >= 60 ? 'STRONG' : dominance >= 52 ? 'MODERATE' : 'WEAK';
-  const confidence = Math.min(99, Math.round(streak * 12 + dominance * 0.4));
-  return { score, streak, signal, confidence, overPct, underPct };
+function extractScannerStats(data, partition, side, pThreshold = 0.15) {
+  if (!data || !data.poisson) return { score: 0, neutrality: 100, pTarget: 1, pOpposite: 1, signal: '--' };
+  
+  let neutrality = 100;
+  let pTarget = 1;
+  let pOpposite = 1;
+  let score = 0;
+  
+  if (partition === 'evenodd') {
+    neutrality = data.neutrality?.evenodd || 100;
+    score = data.scores?.evenodd || 0;
+    pTarget = side === 'EVEN' ? data.poisson?.evenodd?.pValue : data.poisson?.odd?.pValue;
+    pOpposite = side === 'EVEN' ? data.poisson?.odd?.pValue : data.poisson?.evenodd?.pValue;
+  } else {
+    neutrality = data.neutrality?.over5 || 100;
+    score = data.scores?.over5 || 0;
+    pTarget = side === 'OVER' ? data.poisson?.over5?.pValue : data.poisson?.under5?.pValue;
+    pOpposite = side === 'OVER' ? data.poisson?.under5?.pValue : data.poisson?.over5?.pValue;
+  }
+  
+  let signal = 'WAIT';
+  if (neutrality <= 6.0 && pTarget <= pThreshold) signal = 'STRONG BUY';
+  else if (neutrality <= 6.0 && pOpposite <= pThreshold) signal = 'OPP. BUY';
+  
+  return { score, neutrality, pTarget, pOpposite, signal };
 }
 
 function ScoreBar({ score }) {
@@ -91,7 +84,7 @@ function RankBadge({ rank }) {
   );
 }
 
-export default function ScannerPage({ scores, onSwitchMarket, currentMarket }) {
+export default function ScannerPage({ scores, onSwitchMarket, currentMarket, pThreshold = 0.15 }) {
   const [partition, setPartition] = useState('evenodd'); // 'evenodd' | 'overunder'
   const [tradingSide, setTradingSide] = useState({ evenodd:'EVEN', overunder:'OVER' });
   const [autoSwitch, setAutoSwitch] = useState(false);
@@ -106,12 +99,11 @@ export default function ScannerPage({ scores, onSwitchMarket, currentMarket }) {
   const recompute = () => {
     const side = partition === 'evenodd' ? tradingSide.evenodd : tradingSide.overunder;
     const rows = MARKETS.map(sym => {
-      const digits = scores[sym]?.digits || [];
-      const r = partition === 'evenodd'
-        ? computeEvenOddRank(digits, side)
-        : computeOverUnderRank(digits, side);
+      const data = scores[sym];
+      const digits = data?.digits || [];
+      const r = extractScannerStats(data, partition, side, pThreshold);
       return { sym, ...r, digits };
-    }).sort((a, b) => b.score - a.score);
+    }).sort((a, b) => a.neutrality - b.neutrality);
 
     rows.forEach((r, i) => { r.rank = i + 1; });
     setRanked(rows);
@@ -242,17 +234,16 @@ export default function ScannerPage({ scores, onSwitchMarket, currentMarket }) {
         </div>
 
         {/* Header */}
-        <div style={{ display:'grid', gridTemplateColumns:'30px 60px 1fr 70px 70px 80px 80px 70px 110px', gap:8,
+        <div style={{ display:'grid', gridTemplateColumns:'30px 60px 80px 90px 70px 70px 100px 110px', gap:8,
           fontSize:10, color:T.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em',
           paddingBottom:10, borderBottom:`1px solid ${T.border}`, marginBottom:4 }}>
           <div>#</div>
           <div>Market</div>
-          <div>Score</div>
-          <div style={{textAlign:'center'}}>Streak</div>
-          <div style={{textAlign:'center'}}>{partition==='evenodd' ? 'Even%' : 'Over%'}</div>
-          <div style={{textAlign:'center'}}>{partition==='evenodd' ? 'Odd%' : 'Under%'}</div>
+          <div>Neutrality</div>
+          <div>Status</div>
+          <div style={{textAlign:'center'}}>p-T</div>
+          <div style={{textAlign:'center'}}>p-O</div>
           <div style={{textAlign:'center'}}>Signal</div>
-          <div style={{textAlign:'center'}}>Conf.</div>
           <div style={{textAlign:'right'}}>Action</div>
         </div>
 
@@ -263,11 +254,8 @@ export default function ScannerPage({ scores, onSwitchMarket, currentMarket }) {
         ) : ranked.map((r, i) => {
           const isActive = r.sym === activeMarket;
           const isTop = r.rank === 1;
-          const pctA = partition==='evenodd' ? r.evenPct : r.overPct;
-          const pctB = partition==='evenodd' ? r.oddPct : r.underPct;
-          const scoreColor = r.score > 70 ? T.green : r.score > 45 ? T.yellow : T.red;
           return (
-            <div key={r.sym} style={{ display:'grid', gridTemplateColumns:'30px 60px 1fr 70px 70px 80px 80px 70px 110px', gap:8,
+            <div key={r.sym} style={{ display:'grid', gridTemplateColumns:'30px 60px 80px 90px 70px 70px 100px 110px', gap:8,
               alignItems:'center', padding:'10px 0', borderBottom:i<ranked.length-1?`1px solid ${T.dim}`:'none',
               background: isActive ? `${T.accent}08` : isTop ? `${T.green}05` : 'transparent',
               borderLeft: isActive ? `2px solid ${T.accent}` : isTop ? `2px solid ${T.green}` : '2px solid transparent',
@@ -281,30 +269,25 @@ export default function ScannerPage({ scores, onSwitchMarket, currentMarket }) {
                 {isActive && <span style={{ fontSize:9, color:T.accent, fontWeight:600 }}>ACTIVE</span>}
               </div>
 
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <span style={{ fontSize:18, fontWeight:800, color:scoreColor, fontFamily:"'JetBrains Mono',monospace", minWidth:30 }}>{r.score}</span>
-                  <div style={{ flex:1 }}><ScoreBar score={r.score} /></div>
-                </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, color:r.neutrality <= 6.0 ? T.green : T.red, fontWeight:600 }}>
+                <div style={{ width:16, height:4, borderRadius:2, background:r.neutrality <= 6.0 ? T.green : T.red,
+                  opacity: 1 - Math.min(1, r.neutrality/20) }} />
+                {r.neutrality?.toFixed(1)}
               </div>
 
-              <div style={{ textAlign:'center' }}>
-                <span style={{ fontSize:16, fontWeight:800, color: r.streak >= 4 ? T.red : r.streak >= 2 ? T.yellow : T.muted,
-                  fontFamily:"'JetBrains Mono',monospace" }}>{r.streak}</span>
-                <div style={{ fontSize:9, color:T.muted }}>ticks</div>
+              <div style={{ textAlign:'center', fontSize:10, color:r.neutrality <= 2.5 ? T.green : (r.neutrality <= 6.0 ? T.yellow : T.red) }}>
+                {r.neutrality <= 2.5 ? 'BALANCED' : (r.neutrality <= 6.0 ? 'ACCEPTABLE' : 'BIASED')}
               </div>
 
-              <div style={{ textAlign:'center', fontSize:13, fontWeight:600, color: partition==='evenodd' ? T.accent : T.green,
-                fontFamily:"'JetBrains Mono',monospace" }}>{pctA}%</div>
+              <div style={{ textAlign:'center', fontSize:12, color:r.pTarget < 0.15 ? T.green : T.muted, fontWeight:r.pTarget < 0.15 ? 800 : 400 }}>
+                {(r.pTarget||1).toFixed(3)}
+              </div>
 
-              <div style={{ textAlign:'center', fontSize:13, fontWeight:600, color: partition==='evenodd' ? T.purple : T.yellow,
-                fontFamily:"'JetBrains Mono',monospace" }}>{pctB}%</div>
+              <div style={{ textAlign:'center', fontSize:12, color:r.pOpposite < 0.15 ? T.red : T.muted }}>
+                {(r.pOpposite||1).toFixed(3)}
+              </div>
 
               <div style={{ textAlign:'center' }}><SignalBadge signal={r.signal} /></div>
-
-              <div style={{ textAlign:'center', fontSize:13, fontWeight:700,
-                color: r.confidence >= 60 ? T.green : r.confidence >= 40 ? T.yellow : T.muted,
-                fontFamily:"'JetBrains Mono',monospace" }}>{r.confidence}%</div>
 
               <div style={{ textAlign:'right' }}>
                 <button onClick={() => handleManualSwitch(r.sym)}
